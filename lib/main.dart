@@ -13,7 +13,7 @@ import 'features/notes/note_model.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Lock orientation to portrait.
+  // Lock to portrait.
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
@@ -26,7 +26,7 @@ void main() async {
   // Initialise encrypted Hive storage.
   await HiveStorage.init();
 
-  // Check for root / jailbreak.
+  // Root / jailbreak detection.
   final compromised = await RootDetectionService.isDeviceCompromised();
 
   runApp(
@@ -52,7 +52,7 @@ class SNoteApp extends StatelessWidget {
           ? const CompromisedDevicePage()
           : const LoginPage(),
       builder: (context, child) {
-        // Apply the dark system UI overlay on every screen.
+        // Enforce the light-on-dark system overlay on every route.
         return AnnotatedRegion<SystemUiOverlayStyle>(
           value: SystemUiOverlayStyle.light,
           child: child!,

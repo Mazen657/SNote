@@ -2,7 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../core/theme/app_theme.dart';
 
-/// Password input widget that disables copy/cut and autocorrect.
+/// Secure password / PIN input.
+///
+/// Security properties:
+///   - Text is obscured by default with a toggle.
+///   - Auto-correct and suggestions are disabled.
+///   - The long-press context menu retains only Paste.
+///     Copy, Cut, Select All and every other action are removed so the
+///     password can never be placed on the system clipboard.
 class SecureTextField extends StatefulWidget {
   final TextEditingController controller;
   final FocusNode? focusNode;
@@ -44,19 +51,11 @@ class _SecureTextFieldState extends State<SecureTextField> {
       textInputAction: widget.textInputAction,
       onSubmitted: widget.onSubmitted,
       style: const TextStyle(
-          color: AppTheme.textPrimary, letterSpacing: 1.2),
-      contextMenuBuilder: (context, editableTextState) {
-        // Only allow paste — no copy or cut.
-        final buttonItems = editableTextState.contextMenuButtonItems
-            .where((item) =>
-                item.type == ContextMenuButtonType.paste ||
-                item.type == ContextMenuButtonType.selectAll)
-            .toList();
-        return AdaptiveTextSelectionToolbar.buttonItems(
-          anchors: editableTextState.contextMenuAnchors,
-          buttonItems: buttonItems,
-        );
-      },
+        color: AppTheme.textPrimary,
+        letterSpacing: 1.2,
+      ),
+      // Keep only Paste — no Copy, Cut, Select All, or Share.
+      contextMenuBuilder: _pasteOnlyMenu,
       decoration: InputDecoration(
         hintText: widget.hintText,
         errorText: widget.errorText,
@@ -75,3 +74,34 @@ class _SecureTextFieldState extends State<SecureTextField> {
     );
   }
 }
+
+// ─── Shared context-menu builders ─────────────────────────────────────────────
+
+/// Builds a context menu that contains only the Paste action.
+/// Used on every editable text field in the app to prevent data leakage
+/// via the system clipboard.
+Widget _pasteOnlyMenu(
+  BuildContext context,
+  EditableTextState editableTextState,
+) {
+  final pasteItems = editableTextState.contextMenuButtonItems
+      .where((item) => item.type == ContextMenuButtonType.paste)
+      .toList();
+
+  // If the clipboard is empty there is nothing to show — return an empty box
+  // rather than an awkward empty menu.
+  if (pasteItems.isEmpty) return const SizedBox.shrink();
+
+  return AdaptiveTextSelectionToolbar.buttonItems(
+    anchors: editableTextState.contextMenuAnchors,
+    buttonItems: pasteItems,
+  );
+}
+
+/// Public accessor so non-password text fields in the app can reuse the same
+/// paste-only policy without duplicating the builder closure.
+Widget pasteOnlyContextMenu(
+  BuildContext context,
+  EditableTextState editableTextState,
+) =>
+    _pasteOnlyMenu(context, editableTextState);

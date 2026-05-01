@@ -4,6 +4,7 @@ import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:gap/gap.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../widgets/secure_text_field.dart';
 import '../settings/settings_page.dart';
 import 'edit_note_page.dart';
 import 'note_model.dart';
@@ -54,17 +55,16 @@ class _NotesPageState extends ConsumerState<NotesPage> {
   @override
   Widget build(BuildContext context) {
     final notesAsync = ref.watch(notesProvider);
-    final tags = ref.watch(tagsProvider);
+    final tags       = ref.watch(tagsProvider);
 
     return Scaffold(
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
+            // ── Header ──────────────────────────────────────────────────────
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
               child: Row(
                 children: [
                   Expanded(
@@ -97,8 +97,7 @@ class _NotesPageState extends ConsumerState<NotesPage> {
                   IconButton(
                     onPressed: () => Navigator.push(
                       context,
-                      MaterialPageRoute(
-                          builder: (_) => const SettingsPage()),
+                      MaterialPageRoute(builder: (_) => const SettingsPage()),
                     ),
                     icon: const Icon(Icons.settings_outlined,
                         color: AppTheme.textSecondary),
@@ -107,7 +106,7 @@ class _NotesPageState extends ConsumerState<NotesPage> {
               ),
             ),
 
-            // Search bar
+            // ── Search bar ──────────────────────────────────────────────────
             if (_isSearching)
               Padding(
                 padding: const EdgeInsets.symmetric(
@@ -116,24 +115,25 @@ class _NotesPageState extends ConsumerState<NotesPage> {
                   controller: _searchController,
                   autofocus: true,
                   onChanged: _onSearch,
+                  // Paste-only context menu on the search field too.
+                  contextMenuBuilder: pasteOnlyContextMenu,
                   decoration: const InputDecoration(
                     hintText: 'Search notes...',
-                    prefixIcon: Icon(Icons.search,
-                        color: AppTheme.textSecondary),
+                    prefixIcon:
+                        Icon(Icons.search, color: AppTheme.textSecondary),
                   ),
                 ),
               ),
 
             const Gap(4),
 
-            // Tag filter chips
+            // ── Tag filter chips ─────────────────────────────────────────────
             if (tags.isNotEmpty)
               SizedBox(
                 height: 40,
                 child: ListView(
                   scrollDirection: Axis.horizontal,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20),
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
                   children: [
                     _TagChip(
                       label: 'All',
@@ -150,7 +150,9 @@ class _NotesPageState extends ConsumerState<NotesPage> {
                         selected: _selectedTagId == tag.id,
                         onTap: () {
                           setState(() => _selectedTagId = tag.id);
-                          ref.read(notesProvider.notifier).filterByTag(tag.id);
+                          ref
+                              .read(notesProvider.notifier)
+                              .filterByTag(tag.id);
                         },
                       ),
                     ),
@@ -160,14 +162,14 @@ class _NotesPageState extends ConsumerState<NotesPage> {
 
             const Gap(12),
 
-            // Notes list
+            // ── Notes list ───────────────────────────────────────────────────
             Expanded(
               child: notesAsync.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
+                loading: () =>
+                    const Center(child: CircularProgressIndicator()),
                 error: (e, _) => Center(
                   child: Text('Error: $e',
-                      style: const TextStyle(
-                          color: AppTheme.textSecondary)),
+                      style: const TextStyle(color: AppTheme.textSecondary)),
                 ),
                 data: (notes) => notes.isEmpty
                     ? _EmptyState(onNewNote: _newNote)
@@ -220,6 +222,7 @@ class _NotesPageState extends ConsumerState<NotesPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete note?'),
         content: Text(
           'Delete "${note.title}"? This cannot be undone.',
@@ -227,8 +230,9 @@ class _NotesPageState extends ConsumerState<NotesPage> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
@@ -266,8 +270,7 @@ class _TagChip extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         margin: const EdgeInsets.only(right: 8),
-        padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
           color: selected
               ? chipColor.withOpacity(0.2)
@@ -282,8 +285,7 @@ class _TagChip extends StatelessWidget {
           style: TextStyle(
             fontSize: 13,
             color: selected ? chipColor : AppTheme.textSecondary,
-            fontWeight:
-                selected ? FontWeight.w600 : FontWeight.normal,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
           ),
         ),
       ),

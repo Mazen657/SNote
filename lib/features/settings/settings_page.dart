@@ -9,9 +9,9 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/security/security_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../widgets/secure_text_field.dart';
 import '../auth/login_page.dart';
 import '../notes/notes_repository.dart';
-import '../../widgets/secure_text_field.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -21,9 +21,9 @@ class SettingsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
-  bool _bioAvailable = false;
-  bool _bioEnabled = false;
-  int _autoLockMinutes = 5;
+  bool _bioAvailable    = false;
+  bool _bioEnabled      = false;
+  int  _autoLockMinutes = 5;
 
   @override
   void initState() {
@@ -34,43 +34,49 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   Future<void> _loadSettings() async {
     final s = ref.read(securityServiceProvider);
     final bioAvail = await s.isBiometricAvailable;
-    final bioEn = await s.isBiometricEnabled;
-    final lock = await s.getAutoLockMinutes();
+    final bioEn    = await s.isBiometricEnabled;
+    final lock     = await s.getAutoLockMinutes();
     if (mounted) {
       setState(() {
-        _bioAvailable = bioAvail;
-        _bioEnabled = bioEn;
+        _bioAvailable    = bioAvail;
+        _bioEnabled      = bioEn;
         _autoLockMinutes = lock;
       });
     }
   }
 
-  // ─── Change Password ──────────────────────────────────────────────────────
+  // ─── Change password ──────────────────────────────────────────────────────
 
   void _changePassword() {
-    final oldCtrl = TextEditingController();
-    final newCtrl = TextEditingController();
+    final oldCtrl  = TextEditingController();
+    final newCtrl  = TextEditingController();
     final confCtrl = TextEditingController();
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Change Password'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SecureTextField(controller: oldCtrl, hintText: 'Current password'),
+            SecureTextField(
+                controller: oldCtrl, hintText: 'Current password'),
             const Gap(10),
-            SecureTextField(controller: newCtrl, hintText: 'New password (min. 6 chars)'),
+            SecureTextField(
+                controller: newCtrl,
+                hintText: 'New password (min. 6 chars)'),
             const Gap(10),
-            SecureTextField(controller: confCtrl, hintText: 'Confirm new password'),
+            SecureTextField(
+                controller: confCtrl, hintText: 'Confirm new password'),
           ],
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
           TextButton(
             onPressed: () async {
               if (newCtrl.text.length < 6) {
@@ -81,10 +87,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 _snack('Passwords do not match.', error: true);
                 return;
               }
-              final s = ref.read(securityServiceProvider);
+              final s      = ref.read(securityServiceProvider);
               final result = await s.verifyPassword(oldCtrl.text);
               if (result != AuthResult.success) {
-                if (mounted) _snack('Current password is incorrect.', error: true);
+                if (mounted) {
+                  _snack('Current password is incorrect.', error: true);
+                }
                 return;
               }
               await s.setPassword(newCtrl.text);
@@ -109,6 +117,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Auto-lock after'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -139,8 +148,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   Future<void> _export() async {
     try {
-      final file =
-          await ref.read(notesRepositoryProvider).exportBackup();
+      final file = await ref.read(notesRepositoryProvider).exportBackup();
       await Share.shareXFiles(
         [XFile(file.path)],
         subject: 'SNote Backup',
@@ -289,6 +297,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
+  // ─── Tag manager ──────────────────────────────────────────────────────────
+
   void _showTagManager() {
     showModalBottomSheet(
       context: context,
@@ -299,6 +309,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       builder: (_) => const _TagManagerSheet(),
     );
   }
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────
 
   Future<void> _launchUrl(String url) async {
     final uri = Uri.parse(url);
@@ -420,6 +432,8 @@ class _TagManagerSheetState extends ConsumerState<_TagManagerSheet> {
                 Expanded(
                   child: TextField(
                     controller: _nameCtrl,
+                    // Paste-only on tag name field too.
+                    contextMenuBuilder: pasteOnlyContextMenu,
                     decoration:
                         const InputDecoration(hintText: 'Tag name'),
                   ),
@@ -434,8 +448,8 @@ class _TagManagerSheetState extends ConsumerState<_TagManagerSheet> {
                         .createTag(name, colorValue: _selectedColor);
                     _nameCtrl.clear();
                   },
-                  style:
-                      ElevatedButton.styleFrom(minimumSize: const Size(70, 48)),
+                  style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(70, 48)),
                   child: const Text('Add'),
                 ),
               ],
