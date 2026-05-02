@@ -10,8 +10,8 @@ import '../../core/storage/hive_storage.dart';
 import 'note_model.dart';
 
 /// All CRUD operations for notes and tags.
-/// Notes are encrypted/decrypted transparently; only [NoteView] objects
-/// (decrypted, in-memory) are exposed to the UI.
+/// Notes are encrypted/decrypted transparently via [EncryptionService].
+/// Only decrypted [NoteView] objects are ever exposed to the UI layer.
 class NotesRepository {
   final EncryptionService _enc;
 
@@ -24,18 +24,15 @@ class NotesRepository {
     required String content,
     List<String> tagIds = const [],
   }) async {
-    final salt = _enc.generateNoteSalt();
-    final encTitle = await _enc.encryptTitle(
-      title.isEmpty ? 'Untitled' : title,
-      salt,
-    );
+    final salt       = _enc.generateNoteSalt();
+    final encTitle   = await _enc.encryptTitle(title.isEmpty ? 'Untitled' : title, salt);
     final encContent = await _enc.encryptContent(content, salt);
 
     final model = NoteModel(
-      encryptedTitle: encTitle,
+      encryptedTitle:   encTitle,
       encryptedContent: encContent,
-      noteSalt: salt,
-      tagIds: tagIds,
+      noteSalt:         salt,
+      tagIds:           tagIds,
     );
     await HiveStorage.notesBox.put(model.id, model.toJson());
     return _toView(model, title.isEmpty ? 'Untitled' : title, content);
@@ -48,17 +45,14 @@ class NotesRepository {
     for (final key in HiveStorage.notesBox.keys) {
       final raw = HiveStorage.notesBox.get(key);
       if (raw == null) continue;
-      final model =
-          NoteModel.fromJson(Map<String, dynamic>.from(raw as Map));
+      final model = NoteModel.fromJson(Map<String, dynamic>.from(raw as Map));
       if (model.isDeleted) continue;
       try {
-        final title = await _enc.decryptTitle(
-            model.encryptedTitle, model.noteSalt);
-        final content = await _enc.decryptContent(
-            model.encryptedContent, model.noteSalt);
+        final title   = await _enc.decryptTitle(model.encryptedTitle, model.noteSalt);
+        final content = await _enc.decryptContent(model.encryptedContent, model.noteSalt);
         views.add(_toView(model, title, content));
       } catch (_) {
-        // Skip notes that cannot be decrypted (wrong key / corruption).
+        // Skip notes that cannot be decrypted.
       }
     }
     views.sort((a, b) {
@@ -72,13 +66,10 @@ class NotesRepository {
   Future<NoteView?> getNoteById(String id) async {
     final raw = HiveStorage.notesBox.get(id);
     if (raw == null) return null;
-    final model =
-        NoteModel.fromJson(Map<String, dynamic>.from(raw as Map));
+    final model = NoteModel.fromJson(Map<String, dynamic>.from(raw as Map));
     try {
-      final title =
-          await _enc.decryptTitle(model.encryptedTitle, model.noteSalt);
-      final content =
-          await _enc.decryptContent(model.encryptedContent, model.noteSalt);
+      final title   = await _enc.decryptTitle(model.encryptedTitle, model.noteSalt);
+      final content = await _enc.decryptContent(model.encryptedContent, model.noteSalt);
       return _toView(model, title, content);
     } catch (_) {
       return null;
@@ -87,7 +78,7 @@ class NotesRepository {
 
   // ─── Update ───────────────────────────────────────────────────────────────
 
-  /// Re-encrypts with a fresh salt on every save — rotating the per-note key.
+  /// Re-encrypts with a fresh salt on every save, rotating the per-note key.
   Future<NoteView?> updateNote({
     required String id,
     String? title,
@@ -97,27 +88,25 @@ class NotesRepository {
   }) async {
     final raw = HiveStorage.notesBox.get(id);
     if (raw == null) return null;
-    final existing =
-        NoteModel.fromJson(Map<String, dynamic>.from(raw as Map));
+    final existing = NoteModel.fromJson(Map<String, dynamic>.from(raw as Map));
 
-    // Always generate a fresh salt so the encryption key rotates.
+    // Generate a fresh salt so encryption keys rotate on every save.
     final newSalt = _enc.generateNoteSalt();
 
     final resolvedTitle = title ??
         await _enc.decryptTitle(existing.encryptedTitle, existing.noteSalt);
     final resolvedContent = content ??
-        await _enc.decryptContent(
-            existing.encryptedContent, existing.noteSalt);
+        await _enc.decryptContent(existing.encryptedContent, existing.noteSalt);
 
-    final encTitle = await _enc.encryptTitle(resolvedTitle, newSalt);
+    final encTitle   = await _enc.encryptTitle(resolvedTitle, newSalt);
     final encContent = await _enc.encryptContent(resolvedContent, newSalt);
 
     final updated = existing.copyWith(
-      encryptedTitle: encTitle,
+      encryptedTitle:   encTitle,
       encryptedContent: encContent,
-      noteSalt: newSalt,
-      tagIds: tagIds,
-      isPinned: isPinned,
+      noteSalt:         newSalt,
+      tagIds:           tagIds,
+      isPinned:         isPinned,
     );
     await HiveStorage.notesBox.put(id, updated.toJson());
     return _toView(updated, resolvedTitle, resolvedContent);
@@ -131,23 +120,23 @@ class NotesRepository {
 
   // ─── Delete ───────────────────────────────────────────────────────────────
 
-  Future<void> softDeleteNote(String id) async {
-    final raw = HiveStorage.notesBox.get(id);
-    if (raw == null) return;
-    final model =
-        NoteModel.fromJson(Map<String, dynamic>.from(raw as Map));
-    await HiveStorage.notesBox.put(id, model.copyWith(isDeleted: true).toJson());
-  }
-
+  /// Permanently removes a single note from storage.
+  /// There is no soft-delete path exposed in the UI — deletion is final.
   Future<void> permanentlyDeleteNote(String id) =>
       HiveStorage.notesBox.delete(id);
+
+  /// Permanently removes every note whose id is in [ids].
+  /// Runs all deletes concurrently for efficiency.
+  Future<void> permanentlyDeleteNotes(Set<String> ids) async {
+    await Future.wait(ids.map(HiveStorage.notesBox.delete));
+  }
 
   // ─── Search ───────────────────────────────────────────────────────────────
 
   Future<List<NoteView>> search(String query) async {
     if (query.trim().isEmpty) return getAllNotes();
     final lower = query.toLowerCase();
-    final all = await getAllNotes();
+    final all   = await getAllNotes();
     return all
         .where((n) =>
             n.title.toLowerCase().contains(lower) ||
@@ -170,8 +159,7 @@ class NotesRepository {
 
   List<TagModel> getAllTags() {
     return HiveStorage.tagsBox.values
-        .map((raw) =>
-            TagModel.fromJson(Map<String, dynamic>.from(raw as Map)))
+        .map((raw) => TagModel.fromJson(Map<String, dynamic>.from(raw as Map)))
         .toList();
   }
 
@@ -180,8 +168,7 @@ class NotesRepository {
     for (final key in List.from(HiveStorage.notesBox.keys)) {
       final raw = HiveStorage.notesBox.get(key);
       if (raw == null) continue;
-      final model =
-          NoteModel.fromJson(Map<String, dynamic>.from(raw as Map));
+      final model = NoteModel.fromJson(Map<String, dynamic>.from(raw as Map));
       if (model.tagIds.contains(id)) {
         final updated = model.copyWith(
           tagIds: model.tagIds.where((t) => t != id).toList(),
@@ -195,37 +182,33 @@ class NotesRepository {
 
   Future<File> exportBackup() async {
     final notesRaw = HiveStorage.notesBox.values.toList();
-    final tagsRaw = HiveStorage.tagsBox.values.toList();
-    final payload = jsonEncode({
-      'version': 2,
+    final tagsRaw  = HiveStorage.tagsBox.values.toList();
+    final payload  = jsonEncode({
+      'version':    2,
       'exportedAt': DateTime.now().toIso8601String(),
-      'notes': notesRaw,
-      'tags': tagsRaw,
+      'notes':      notesRaw,
+      'tags':       tagsRaw,
     });
 
-    // Encrypt the entire JSON blob with a throw-away salt.
     final backupSalt = _enc.generateNoteSalt();
     final encPayload = await _enc.encryptContent(payload, backupSalt);
 
-    final dir = await getApplicationDocumentsDirectory();
-    final name =
-        'snote_backup_${DateTime.now().millisecondsSinceEpoch}.notesbackup';
+    final dir  = await getApplicationDocumentsDirectory();
+    final name = 'snote_backup_${DateTime.now().millisecondsSinceEpoch}.notesbackup';
     final file = File('${dir.path}/$name');
-    await file.writeAsString(
-        jsonEncode({'salt': backupSalt, 'data': encPayload}));
+    await file.writeAsString(jsonEncode({'salt': backupSalt, 'data': encPayload}));
     return file;
   }
 
   Future<int> importBackup(File file) async {
-    final wrapper =
-        jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-    final salt = wrapper['salt'] as String;
-    final encData = wrapper['data'] as String;
-    final payload =
+    final wrapper  = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    final salt     = wrapper['salt'] as String;
+    final encData  = wrapper['data'] as String;
+    final payload  =
         jsonDecode(await _enc.decryptContent(encData, salt)) as Map<String, dynamic>;
 
     final notes = (payload['notes'] as List).cast<Map>();
-    final tags = (payload['tags'] as List? ?? []).cast<Map>();
+    final tags  = (payload['tags']  as List? ?? []).cast<Map>();
 
     for (final t in tags) {
       final tag = TagModel.fromJson(Map<String, dynamic>.from(t));
@@ -243,16 +226,16 @@ class NotesRepository {
     return count;
   }
 
-  // ─── Helpers ──────────────────────────────────────────────────────────────
+  // ─── Helper ───────────────────────────────────────────────────────────────
 
   NoteView _toView(NoteModel model, String title, String content) => NoteView(
-        id: model.id,
-        title: title,
-        content: content,
-        createdAt: model.createdAt,
+        id:         model.id,
+        title:      title,
+        content:    content,
+        createdAt:  model.createdAt,
         modifiedAt: model.modifiedAt,
-        tagIds: model.tagIds,
-        isPinned: model.isPinned,
+        tagIds:     model.tagIds,
+        isPinned:   model.isPinned,
       );
 }
 
@@ -272,7 +255,7 @@ final tagsProvider =
 // ─── State Notifiers ──────────────────────────────────────────────────────────
 
 class NotesNotifier extends AsyncNotifier<List<NoteView>> {
-  String _tagFilter = '';
+  String _tagFilter   = '';
   String _searchQuery = '';
 
   @override
@@ -281,7 +264,7 @@ class NotesNotifier extends AsyncNotifier<List<NoteView>> {
   Future<List<NoteView>> _load() {
     final repo = ref.read(notesRepositoryProvider);
     if (_searchQuery.isNotEmpty) return repo.search(_searchQuery);
-    if (_tagFilter.isNotEmpty) return repo.filterByTag(_tagFilter);
+    if (_tagFilter.isNotEmpty)   return repo.filterByTag(_tagFilter);
     return repo.getAllNotes();
   }
 
@@ -292,18 +275,18 @@ class NotesNotifier extends AsyncNotifier<List<NoteView>> {
 
   void search(String query) {
     _searchQuery = query;
-    _tagFilter = '';
+    _tagFilter   = '';
     refresh();
   }
 
   void filterByTag(String tagId) {
-    _tagFilter = tagId;
+    _tagFilter   = tagId;
     _searchQuery = '';
     refresh();
   }
 
   void clearFilters() {
-    _tagFilter = '';
+    _tagFilter   = '';
     _searchQuery = '';
     refresh();
   }
@@ -327,17 +310,25 @@ class NotesNotifier extends AsyncNotifier<List<NoteView>> {
     bool? isPinned,
   }) async {
     await ref.read(notesRepositoryProvider).updateNote(
-          id: id,
-          title: title,
-          content: content,
-          tagIds: tagIds,
+          id:       id,
+          title:    title,
+          content:  content,
+          tagIds:   tagIds,
           isPinned: isPinned,
         );
     await refresh();
   }
 
+  /// Permanently deletes a single note — no soft-delete, no recovery.
   Future<void> deleteNote(String id) async {
-    await ref.read(notesRepositoryProvider).softDeleteNote(id);
+    await ref.read(notesRepositoryProvider).permanentlyDeleteNote(id);
+    await refresh();
+  }
+
+  /// Permanently deletes every note in [ids] in one batch operation.
+  Future<void> deleteNotes(Set<String> ids) async {
+    if (ids.isEmpty) return;
+    await ref.read(notesRepositoryProvider).permanentlyDeleteNotes(ids);
     await refresh();
   }
 

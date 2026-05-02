@@ -8,8 +8,45 @@ import '../../widgets/secure_text_field.dart';
 import 'note_model.dart';
 import 'notes_repository.dart';
 
+// ─── Save-dialog result ───────────────────────────────────────────────────────
+
+enum _ExitChoice { save, discard, cancel }
+
+// ─── Snapshot used for change detection ──────────────────────────────────────
+
+/// Immutable record of what was last persisted to storage for this note.
+/// Compared against live controller values to decide whether unsaved changes
+/// exist.  Initialised from the loaded note (edit mode) or all-empty (new
+/// note), and updated every time a successful save completes.
+class _NoteSnapshot {
+  final String title;
+  final String content;
+  final List<String> tagIds;
+
+  const _NoteSnapshot({
+    required this.title,
+    required this.content,
+    required this.tagIds,
+  });
+
+  /// An all-empty snapshot used for brand-new notes before any save.
+  const _NoteSnapshot.empty()
+      : title = '',
+        content = '',
+        tagIds = const [];
+
+  _NoteSnapshot copyWithSaved({
+    required String title,
+    required String content,
+    required List<String> tagIds,
+  }) =>
+      _NoteSnapshot(title: title, content: content, tagIds: tagIds);
+}
+
+// ─── Page widget ─────────────────────────────────────────────────────────────
+
 class EditNotePage extends ConsumerStatefulWidget {
-  /// Null means "create new note".
+  /// Null = create new note.
   final String? noteId;
   const EditNotePage({super.key, this.noteId});
 
@@ -18,14 +55,25 @@ class EditNotePage extends ConsumerStatefulWidget {
 }
 
 class _EditNotePageState extends ConsumerState<EditNotePage> {
-  final _titleController  = TextEditingController();
+  final _titleController   = TextEditingController();
   final _contentController = TextEditingController();
-  final _contentFocus     = FocusNode();
+  final _contentFocus      = FocusNode();
 
-  NoteView? _original;
+  // The last-persisted state of this note.
+  _NoteSnapshot _saved = const _NoteSnapshot.empty();
+
+  // Live tag selection (may differ from _saved.tagIds before save).
   List<String> _selectedTagIds = [];
-  bool _isSaving = false;
-  bool _isLoading = true;
+
+  // Displayed in the modified-date row.
+  NoteView? _original;
+
+  bool _isLoading            = true;
+  bool _isSaving             = false;
+
+  // Guards against opening the exit dialog twice (e.g. back gesture + back
+  // button firing simultaneously).
+  bool _dialogInProgress     = false;
 
   bool get _isEditing => widget.noteId != null;
 
@@ -45,151 +93,260 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
     super.dispose();
   }
 
-  // ─── Data loading ─────────────────────────────────────────────────────────
+  // ─── Load ─────────────────────────────────────────────────────────────────
 
   Future<void> _loadNote() async {
     if (widget.noteId != null) {
-      final repo = ref.read(notesRepositoryProvider);
-      final note = await repo.getNoteById(widget.noteId!);
+      final note =
+          await ref.read(notesRepositoryProvider).getNoteById(widget.noteId!);
       if (note != null && mounted) {
-        setState(() {
-          _original = note;
-          _titleController.text  = note.title;
-          _contentController.text = note.content;
-          _selectedTagIds = List.from(note.tagIds);
-        });
+        _titleController.text   = note.title;
+        _contentController.text = note.content;
+        _selectedTagIds         = List.from(note.tagIds);
+        _original               = note;
+        // Snapshot matches what is on disk — no unsaved changes yet.
+        _saved = _NoteSnapshot(
+          title:   note.title,
+          content: note.content,
+          tagIds:  List.from(note.tagIds),
+        );
       }
     }
     if (mounted) setState(() => _isLoading = false);
   }
 
+  // ─── Change detection ─────────────────────────────────────────────────────
+
+  /// Returns true when the live editor state differs from the last-persisted
+  /// snapshot.  Tag order is normalised before comparison so a tag re-order
+  /// without an add/remove does not trigger a false positive.
+  bool _hasUnsavedChanges() {
+    final liveTitle   = _titleController.text;
+    final liveContent = _contentController.text;
+
+    if (liveTitle   != _saved.title)   return true;
+    if (liveContent != _saved.content) return true;
+
+    final liveSorted  = List<String>.from(_selectedTagIds)..sort();
+    final savedSorted = List<String>.from(_saved.tagIds)..sort();
+    if (liveSorted.length != savedSorted.length) return true;
+    for (int i = 0; i < liveSorted.length; i++) {
+      if (liveSorted[i] != savedSorted[i]) return true;
+    }
+    return false;
+  }
+
   // ─── Save ─────────────────────────────────────────────────────────────────
 
-  Future<void> _save() async {
+  /// Persists the note and updates [_saved] so subsequent exit checks do not
+  /// re-prompt.  Returns true on success, false when the note was empty and
+  /// was intentionally discarded without navigation.
+  Future<bool> _save() async {
+    if (_isSaving) return false;
+
     final title   = _titleController.text.trim();
     final content = _contentController.text.trim();
 
-    // Empty notes are never stored — discard silently.
+    // Empty notes are silently discarded — they are never stored.
     if (title.isEmpty && content.isEmpty) {
-      if (mounted) Navigator.pop(context);
-      return;
+      return false; // caller handles navigation
     }
 
     setState(() => _isSaving = true);
-    final notifier = ref.read(notesProvider.notifier);
 
-    if (_isEditing) {
-      await notifier.updateNote(
-        id: widget.noteId!,
-        title: title.isEmpty ? 'Untitled' : title,
-        content: content,
-        tagIds: _selectedTagIds,
-      );
-    } else {
-      await notifier.createNote(
-        title: title.isEmpty ? 'Untitled' : title,
-        content: content,
-        tagIds: _selectedTagIds,
-      );
-    }
+    try {
+      final notifier       = ref.read(notesProvider.notifier);
+      final resolvedTitle  = title.isEmpty ? 'Untitled' : title;
 
-    if (mounted) Navigator.pop(context);
-  }
+      if (_isEditing) {
+        await notifier.updateNote(
+          id:      widget.noteId!,
+          title:   resolvedTitle,
+          content: content,
+          tagIds:  _selectedTagIds,
+        );
+      } else {
+        await notifier.createNote(
+          title:   resolvedTitle,
+          content: content,
+          tagIds:  _selectedTagIds,
+        );
+      }
 
-  // ─── Clear note ───────────────────────────────────────────────────────────
-
-  /// Shows a confirmation dialog then wipes both title and content fields.
-  Future<void> _confirmClearNote() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Clear note?'),
-        content: const Text(
-          'All title and content text will be permanently removed. '
-          'This cannot be undone.',
-          style: TextStyle(color: AppTheme.textSecondary),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: AppTheme.textSecondary),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(
-              'Clear',
-              style: TextStyle(
-                color: AppTheme.error,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true && mounted) {
-      _titleController.clear();
-      _contentController.clear();
-      // Move focus to title so the user can immediately retype.
-      FocusScope.of(context).requestFocus(_contentFocus);
+      // Update snapshot so the editor no longer considers the note dirty.
+      setState(() {
+        _saved = _saved.copyWithSaved(
+          title:   resolvedTitle,
+          content: content,
+          tagIds:  List.from(_selectedTagIds),
+        );
+        _isSaving = false;
+      });
+      return true;
+    } catch (_) {
+      if (mounted) setState(() => _isSaving = false);
+      return false;
     }
   }
 
-  // ─── Back / unsaved changes ───────────────────────────────────────────────
+  // ─── Exit flow ────────────────────────────────────────────────────────────
 
-  bool _hasUnsavedChanges() {
-    if (_original == null) {
-      return _titleController.text.isNotEmpty ||
-          _contentController.text.isNotEmpty;
+  /// Central exit handler called by every back path (app-bar button, system
+  /// back gesture, PopScope).  Guarantees at most one dialog is shown.
+  Future<void> _handleBack() async {
+    if (_dialogInProgress) return;
+
+    // Nothing changed — leave immediately.
+    if (!_hasUnsavedChanges()) {
+      _leave();
+      return;
     }
-    return _titleController.text  != _original!.title ||
-        _contentController.text != _original!.content;
+
+    // Both fields empty — discard silently (no point prompting).
+    if (_titleController.text.trim().isEmpty &&
+        _contentController.text.trim().isEmpty) {
+      _leave();
+      return;
+    }
+
+    _dialogInProgress = true;
+    final choice = await _showExitDialog();
+    _dialogInProgress = false;
+
+    if (!mounted) return;
+
+    switch (choice) {
+      case _ExitChoice.save:
+        final saved = await _save();
+        if (!mounted) return;
+        // Navigate regardless of save result — if it failed the error is
+        // already surfaced through the saving state; do not trap the user.
+        _leave();
+        break;
+
+      case _ExitChoice.discard:
+        _leave();
+
+      case _ExitChoice.cancel:
+      case null:
+        // Stay in editor — do nothing.
+        break;
+    }
   }
 
-  Future<bool?> _showSaveDialog() => showDialog<bool>(
+  void _leave() {
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  // ─── Dialogs ──────────────────────────────────────────────────────────────
+
+  /// Three-choice exit dialog: Save / Discard / Cancel.
+  Future<_ExitChoice?> _showExitDialog() => showDialog<_ExitChoice>(
         context: context,
+        barrierDismissible: false,
         builder: (ctx) => AlertDialog(
           backgroundColor: AppTheme.surface,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16)),
           title: const Text('Save changes?'),
+          content: const Text(
+            'You have unsaved changes. Would you like to save them '
+            'before leaving?',
+            style: TextStyle(color: AppTheme.textSecondary),
+          ),
           actions: [
+            // Cancel — stay in editor.
             TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
+              onPressed: () => Navigator.pop(ctx, _ExitChoice.cancel),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
+            ),
+            // Discard — leave without saving.
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, _ExitChoice.discard),
               child: const Text(
                 'Discard',
                 style: TextStyle(color: AppTheme.error),
               ),
             ),
+            // Save — persist then leave.
             TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
+              onPressed: () => Navigator.pop(ctx, _ExitChoice.save),
               child: const Text(
                 'Save',
-                style: TextStyle(color: AppTheme.primary),
+                style: TextStyle(
+                  color: AppTheme.primary,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],
         ),
       );
 
-  Future<void> _handleBack() async {
-    if (_hasUnsavedChanges()) {
-      final save = await _showSaveDialog();
-      if (save == true) await _save();
-      if (save != null && mounted) Navigator.pop(context);
-    } else {
-      Navigator.pop(context);
+  /// Clear-note confirmation.  Returns true when the user confirmed.
+  Future<bool> _showClearDialog() => showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppTheme.surface,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16)),
+          title: const Text('Clear note?'),
+          content: const Text(
+            'All title and content text will be removed. '
+            'This cannot be undone.',
+            style: TextStyle(color: AppTheme.textSecondary),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text(
+                'Clear',
+                style: TextStyle(
+                  color: AppTheme.error,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ).then((v) => v ?? false);
+
+  // ─── Actions ──────────────────────────────────────────────────────────────
+
+  /// Explicit save triggered from the Save button in the app bar.
+  Future<void> _onSavePressed() async {
+    final title   = _titleController.text.trim();
+    final content = _contentController.text.trim();
+
+    if (title.isEmpty && content.isEmpty) {
+      // Nothing to save — leave without prompting.
+      _leave();
+      return;
     }
+
+    final ok = await _save();
+    if (ok && mounted) _leave();
   }
 
-  // ─── Tag picker ───────────────────────────────────────────────────────────
+  Future<void> _onClearPressed() async {
+    final confirmed = await _showClearDialog();
+    if (confirmed && mounted) {
+      _titleController.clear();
+      _contentController.clear();
+      FocusScope.of(context).requestFocus(_contentFocus);
+    }
+  }
 
   void _showTagPicker() {
     final tags = ref.read(tagsProvider);
@@ -200,11 +357,19 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) => _TagPickerSheet(
-        tags: tags,
+        tags:           tags,
         selectedTagIds: List.from(_selectedTagIds),
-        onDone: (ids) => setState(() => _selectedTagIds = ids),
+        onDone:         (ids) => setState(() => _selectedTagIds = ids),
       ),
     );
+  }
+
+  Future<void> _onTogglePin() async {
+    if (widget.noteId == null) return;
+    await ref.read(notesProvider.notifier).togglePin(widget.noteId!);
+    final updated =
+        await ref.read(notesRepositoryProvider).getNoteById(widget.noteId!);
+    if (updated != null && mounted) setState(() => _original = updated);
   }
 
   // ─── Build ────────────────────────────────────────────────────────────────
@@ -221,6 +386,8 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
     final selectedTags = tags.where((t) => _selectedTagIds.contains(t.id)).toList();
 
     return PopScope(
+      // Never let the framework pop automatically — route every back through
+      // our handler so the unsaved-changes check is always applied.
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
@@ -233,7 +400,7 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
             onPressed: _handleBack,
           ),
           actions: [
-            // ── Pin toggle (edit mode only) ──────────────────────────────
+            // Pin toggle (edit mode only).
             if (_isEditing && _original != null)
               IconButton(
                 tooltip: _original!.isPinned ? 'Unpin' : 'Pin',
@@ -245,37 +412,27 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
                       ? AppTheme.primary
                       : AppTheme.textSecondary,
                 ),
-                onPressed: () async {
-                  await ref
-                      .read(notesProvider.notifier)
-                      .togglePin(widget.noteId!);
-                  final updated = await ref
-                      .read(notesRepositoryProvider)
-                      .getNoteById(widget.noteId!);
-                  if (updated != null && mounted) {
-                    setState(() => _original = updated);
-                  }
-                },
+                onPressed: _onTogglePin,
               ),
 
-            // ── Clear note ───────────────────────────────────────────────
+            // Clear all content.
             IconButton(
               tooltip: 'Clear note',
               icon: const Icon(Icons.delete_sweep_outlined),
               color: AppTheme.textSecondary,
-              onPressed: _confirmClearNote,
+              onPressed: _onClearPressed,
             ),
 
-            // ── Tags ─────────────────────────────────────────────────────
+            // Tags.
             IconButton(
               tooltip: 'Tags',
               icon: const Icon(Icons.label_outline),
               onPressed: _showTagPicker,
             ),
 
-            // ── Save ─────────────────────────────────────────────────────
+            // Save and exit.
             TextButton(
-              onPressed: _isSaving ? null : _save,
+              onPressed: _isSaving ? null : _onSavePressed,
               child: _isSaving
                   ? const SizedBox(
                       height: 16,
@@ -284,7 +441,10 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
                     )
                   : const Text(
                       'Save',
-                      style: TextStyle(color: AppTheme.primary),
+                      style: TextStyle(
+                        color: AppTheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
             ),
           ],
@@ -294,7 +454,7 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── Modified date ────────────────────────────────────────────
+              // Modified date.
               if (_original != null)
                 Padding(
                   padding: const EdgeInsets.symmetric(
@@ -308,7 +468,7 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
                   ),
                 ),
 
-              // ── Active tags row ──────────────────────────────────────────
+              // Active tag chips.
               if (selectedTags.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.symmetric(
@@ -322,7 +482,8 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
                               backgroundColor:
                                   Color(t.colorValue).withOpacity(0.15),
                               side: BorderSide(
-                                  color: Color(t.colorValue).withOpacity(0.4)),
+                                  color:
+                                      Color(t.colorValue).withOpacity(0.4)),
                               padding: EdgeInsets.zero,
                               materialTapTargetSize:
                                   MaterialTapTargetSize.shrinkWrap,
@@ -331,12 +492,11 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
                   ),
                 ),
 
-              // ── Title field ──────────────────────────────────────────────
+              // Title field.
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: TextField(
                   controller: _titleController,
-                  // Paste-only context menu on all note fields.
                   contextMenuBuilder: pasteOnlyContextMenu,
                   style: Theme.of(context)
                       .textTheme
@@ -344,7 +504,7 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
                       ?.copyWith(fontSize: 22),
                   decoration: const InputDecoration(
                     hintText: 'Title',
-                    border: InputBorder.none,
+                    border:        InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
                     contentPadding: EdgeInsets.symmetric(vertical: 8),
@@ -357,24 +517,23 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
 
               const Divider(height: 1),
 
-              // ── Content field ────────────────────────────────────────────
+              // Content field.
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: TextField(
-                    controller: _contentController,
-                    focusNode: _contentFocus,
-                    maxLines: null,
-                    expands: true,
-                    // Paste-only context menu on all note fields.
+                    controller:  _contentController,
+                    focusNode:   _contentFocus,
+                    maxLines:    null,
+                    expands:     true,
                     contextMenuBuilder: pasteOnlyContextMenu,
                     style: Theme.of(context)
                         .textTheme
                         .bodyLarge
                         ?.copyWith(height: 1.6),
                     decoration: const InputDecoration(
-                      hintText: 'Start writing...',
-                      border: InputBorder.none,
+                      hintText:      'Start writing...',
+                      border:        InputBorder.none,
                       enabledBorder: InputBorder.none,
                       focusedBorder: InputBorder.none,
                       contentPadding: EdgeInsets.only(top: 12),
@@ -384,8 +543,8 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
                 ),
               ),
 
-              // ── Clear Note button ────────────────────────────────────────
-              _ClearNoteButton(onPressed: _confirmClearNote),
+              // Clear Note bottom button.
+              _ClearNoteBar(onPressed: _onClearPressed),
             ],
           ),
         ),
@@ -394,13 +553,11 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
   }
 }
 
-// ─── Clear Note button widget ─────────────────────────────────────────────────
+// ─── Clear Note bottom bar ────────────────────────────────────────────────────
 
-/// Displayed at the bottom of the editor as a clearly labelled,
-/// visually distinct danger action.
-class _ClearNoteButton extends StatelessWidget {
+class _ClearNoteBar extends StatelessWidget {
   final VoidCallback onPressed;
-  const _ClearNoteButton({required this.onPressed});
+  const _ClearNoteBar({required this.onPressed});
 
   @override
   Widget build(BuildContext context) {
@@ -412,17 +569,14 @@ class _ClearNoteButton extends StatelessWidget {
       child: TextButton.icon(
         onPressed: onPressed,
         style: TextButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          shape: const RoundedRectangleBorder(),
-          foregroundColor: AppTheme.error,
+          padding:          const EdgeInsets.symmetric(vertical: 14),
+          shape:            const RoundedRectangleBorder(),
+          foregroundColor:  AppTheme.error,
         ),
-        icon: const Icon(Icons.delete_sweep_outlined, size: 18),
+        icon:  const Icon(Icons.delete_sweep_outlined, size: 18),
         label: const Text(
           'Clear Note',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
         ),
       ),
     );
@@ -488,14 +642,14 @@ class _TagPickerSheetState extends State<_TagPickerSheet> {
             )
           else
             Wrap(
-              spacing: 8,
+              spacing:    8,
               runSpacing: 8,
               children: widget.tags.map((tag) {
                 final sel = _selected.contains(tag.id);
                 return FilterChip(
-                  label: Text(tag.name),
-                  selected: sel,
-                  onSelected: (val) => setState(() {
+                  label:         Text(tag.name),
+                  selected:      sel,
+                  onSelected:    (val) => setState(() {
                     val ? _selected.add(tag.id) : _selected.remove(tag.id);
                   }),
                   selectedColor: Color(tag.colorValue).withOpacity(0.2),
