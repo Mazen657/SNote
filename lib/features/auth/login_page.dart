@@ -130,13 +130,20 @@ class _LoginPageState extends ConsumerState<LoginPage>
                 width: 64,
                 height: 64,
                 decoration: BoxDecoration(
-                  color: AppTheme.primary.withOpacity(0.12),
+                  color: const Color.fromARGB(255, 181, 218, 255).withOpacity(0.12),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                      color: AppTheme.primary.withOpacity(0.3), width: 1),
+                    color: const Color.fromARGB(255, 5, 36, 44).withOpacity(0.3),
+                    width: 1,
+                  ),
                 ),
-                child: const Icon(Icons.lock_outline,
-                    color: AppTheme.primary, size: 32),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: Image.asset(
+                    'assets/images/app_icon.png',
+                    fit: BoxFit.cover,
+                  ),
+                ),
               ),
               const Gap(32),
               Text('Welcome back',

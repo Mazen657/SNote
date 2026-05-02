@@ -503,11 +503,15 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
                       .titleLarge
                       ?.copyWith(fontSize: 22),
                   decoration: const InputDecoration(
-                    hintText: 'Title',
+                    hintText:      'Title',
                     border:        InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
                     contentPadding: EdgeInsets.symmetric(vertical: 8),
+                    // Override the theme fill so the field blends with the
+                    // scaffold background and is not visible as a box.
+                    filled:        true,
+                    fillColor:     Colors.transparent,
                   ),
                   textInputAction: TextInputAction.next,
                   onSubmitted: (_) =>
@@ -537,6 +541,9 @@ class _EditNotePageState extends ConsumerState<EditNotePage> {
                       enabledBorder: InputBorder.none,
                       focusedBorder: InputBorder.none,
                       contentPadding: EdgeInsets.only(top: 12),
+                      // Match scaffold background — no visible fill box.
+                      filled:        true,
+                      fillColor:     Colors.transparent,
                     ),
                     textAlignVertical: TextAlignVertical.top,
                   ),

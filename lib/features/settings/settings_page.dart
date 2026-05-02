@@ -260,36 +260,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             onTap: _lock,
           ),
           const Gap(16),
-          _section('Developer'),
-          _tile(
-            icon: Icons.person_outline,
-            title: 'Mazen Abdallah',
-            subtitle: 'Developer',
-            onTap: () {},
-          ),
-          _tile(
-            icon: Icons.link,
-            title: 'LinkedIn',
-            subtitle: 'linkedin.com/in/mazen-abdallah-mohamed',
-            onTap: () => _launchUrl(
-                'https://www.linkedin.com/in/mazen-abdallah-mohamed/'),
-          ),
-          _tile(
-            icon: Icons.code,
-            title: 'GitHub',
-            subtitle: 'github.com/Mazen657',
-            onTap: () => _launchUrl('https://github.com/Mazen657'),
-          ),
-          const Gap(32),
-          Center(
-            child: Text(
-              'SNote v1.0.0\nAll data stored locally. No internet required.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(fontSize: 12),
-            ),
+          _section('About'),
+          _AboutCard(
+            onLaunchUrl: (url) => _launchUrl(url),
           ),
           const Gap(16),
         ],
@@ -385,6 +358,193 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       content: Text(msg),
       backgroundColor: error ? AppTheme.error : AppTheme.success,
     ));
+  }
+}
+
+
+
+// ─── About Card ───────────────────────────────────────────────────────────────
+
+class _AboutCard extends StatelessWidget {
+  final Future<void> Function(String url) onLaunchUrl;
+
+  const _AboutCard({required this.onLaunchUrl});
+
+  static const _linkedIn =
+      'https://www.linkedin.com/in/mazen-abdallah-mohamed/';
+  static const _github = 'https://github.com/Mazen657';
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // App name + version row
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: const Color.fromARGB(255, 227, 239, 245), // تم تغيير اللون إلى #8fbdd5
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: const Color(0xFF8FBDD5), width: 1), // تم تغيير لون الحدود
+                  ),
+                  child: ClipRRect( 
+                    borderRadius: BorderRadius.circular(11),
+                    child: Image.asset( 
+                      'assets/images/app_icon.png',
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+                const Gap(12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Secret Notes',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const Text(
+                      'Version 1.0.0',
+                      style: TextStyle(
+                          color: AppTheme.textSecondary, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+            const Gap(16),
+            const Divider(color: AppTheme.divider, height: 1),
+            const Gap(16),
+
+            // Description
+            Text(
+              'Secret Notes is a fully offline, privacy-first note-taking app. '
+              'All your notes are securely protected and stored only on your device — '
+              'no cloud sync, no accounts, no ads. '
+              'Your thoughts stay yours.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    height: 1.6,
+                    color: AppTheme.textSecondary,
+                  ),
+            ),
+
+            const Gap(20),
+
+            Text(
+              'Developed by Mazen Abdallah',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const Gap(10),
+
+            _SocialButton(
+              icon: Image.asset('assets/images/linkedin.png'),
+              label: 'LinkedIn',
+              sublabel: 'Mazen Abdallah Mohamed',
+              color: const Color(0xFF0A66C2),
+              onTap: () => onLaunchUrl(_linkedIn),
+            ),
+            const Gap(8),
+            _SocialButton(
+              icon: Image.asset('assets/images/github-sign.png'),
+              label: 'GitHub',
+              sublabel: 'Mazen657',
+              color: const Color(0xFFE6EDF3),
+              onTap: () => onLaunchUrl(_github),
+            ),
+
+            const Gap(16),
+            const Divider(color: AppTheme.divider, height: 1),
+            const Gap(12),
+
+            Center(
+              child: Text(
+                'All data stored locally. No internet required.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(fontSize: 11),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Social Button ────────────────────────────────────────────────────────────
+
+class _SocialButton extends StatelessWidget {
+  final Widget icon;
+  final String label;
+  final String sublabel;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _SocialButton({
+    required this.icon,
+    required this.label,
+    required this.sublabel,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: color.withOpacity(0.08),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            children: [
+              SizedBox(width: 22, height: 22, child: icon),
+              const Gap(12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: color == const Color(0xFFE6EDF3)
+                          ? AppTheme.textPrimary
+                          : color,
+                    ),
+                  ),
+                  Text(
+                    sublabel,
+                    style: const TextStyle(
+                        fontSize: 11, color: AppTheme.textSecondary),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              Icon(Icons.open_in_new,
+                  size: 14, color: AppTheme.textSecondary.withOpacity(0.6)),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
