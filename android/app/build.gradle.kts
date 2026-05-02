@@ -5,8 +5,8 @@ plugins {
 }
 
 android {
-    namespace = "com.mazen.snote"
-    compileSdk = 36
+    namespace  = "com.mazen.snote"
+    compileSdk = 35
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -21,21 +21,35 @@ android {
     defaultConfig {
         applicationId = "com.mazen.snote"
         minSdk = flutter.minSdkVersion
-        targetSdk = 36
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        targetSdk     = 35
+        versionCode   = flutter.versionCode
+        versionName   = flutter.versionName
     }
 
     buildTypes {
+        debug {
+            // Keep debug builds debuggable but do NOT disable security checks —
+            // root detection runs in every build type.
+            isDebuggable     = true
+            isMinifyEnabled  = false
+            isShrinkResources = false
+        }
         release {
-            isMinifyEnabled = true
+            isDebuggable      = false
+            isMinifyEnabled   = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
             )
             signingConfig = signingConfigs.getByName("debug")
         }
+    }
+
+    // Prevent the APK from being backed up — backup could expose Hive data
+    // or secure-storage entries on a compromised device.
+    defaultConfig {
+        manifestPlaceholders["allowBackup"] = "false"
     }
 }
 

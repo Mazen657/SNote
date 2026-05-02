@@ -10,54 +10,97 @@ import 'features/auth/compromised_device_page.dart';
 import 'features/auth/login_page.dart';
 import 'features/notes/note_model.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Lock to portrait.
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+  // ── Step 1: Root check — BEFORE any sensitive initialisation ───────────────
+  //
+  // This is the Dart-layer check.  The primary root gate is the native
+  // Kotlin check in MainActivity.onCreate() which runs before Flutter boots.
+  // This check covers the rare case where the native gate is unavailable
+  // (e.g. unit-test environment, unsupported platform) and adds a second
+  // independent verification layer.
+  //
+  // If root is detected here, we skip Hive initialisation entirely so no
+  // encrypted box is ever opened and no keys are loaded into memory.
+  final bool deviceCompromised =
+      await RootDetectionService.isDeviceCompromised();
 
-  // Register Hive adapters before opening boxes.
-  Hive.registerAdapter(NoteModelAdapter());
-  Hive.registerAdapter(TagModelAdapter());
+  if (!deviceCompromised) {
+    // ── Step 2: Sensitive initialisation (only on clean devices) ─────────────
 
-  // Initialise encrypted Hive storage.
-  await HiveStorage.init();
+    // Lock to portrait.
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
 
-  // Root / jailbreak detection.
-  final compromised = await RootDetectionService.isDeviceCompromised();
+    // Register Hive type adapters.
+    Hive.registerAdapter(NoteModelAdapter());
+    Hive.registerAdapter(TagModelAdapter());
 
+    // Open encrypted Hive boxes.
+    await HiveStorage.init();
+  }
+
+  // ── Step 3: Launch the app ────────────────────────────────────────────────
+  //
+  // If the device is compromised the app renders only CompromisedDevicePage
+  // — a non-dismissible dead-end that auto-exits after 10 seconds.
+  // ProviderScope is intentionally omitted on the compromised path so no
+  // providers, repositories, or encryption services are ever instantiated.
   runApp(
-    ProviderScope(
-      child: SNoteApp(deviceCompromised: compromised),
-    ),
+    deviceCompromised
+        ? const _BlockedApp()
+        : const ProviderScope(child: SNoteApp()),
   );
 }
 
+// ── Normal app ────────────────────────────────────────────────────────────────
+
 class SNoteApp extends StatelessWidget {
-  final bool deviceCompromised;
-  const SNoteApp({super.key, required this.deviceCompromised});
+  const SNoteApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SNote',
+      title:                    'SNote',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.darkTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.dark,
-      home: deviceCompromised
-          ? const CompromisedDevicePage()
-          : const LoginPage(),
+      theme:                    AppTheme.darkTheme,
+      darkTheme:                AppTheme.darkTheme,
+      themeMode:                ThemeMode.dark,
+      home:                     const LoginPage(),
       builder: (context, child) {
-        // Enforce the light-on-dark system overlay on every route.
         return AnnotatedRegion<SystemUiOverlayStyle>(
           value: SystemUiOverlayStyle.light,
           child: child!,
         );
       },
+    );
+  }
+}
+
+// ── Blocked app (compromised device) ─────────────────────────────────────────
+//
+// A minimal MaterialApp with a single non-dismissible route.
+// No ProviderScope, no Hive, no encryption services — nothing sensitive
+// is ever instantiated on this path.
+
+class _BlockedApp extends StatelessWidget {
+  const _BlockedApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title:                    'SNote',
+      debugShowCheckedModeBanner: false,
+      theme:                    AppTheme.darkTheme,
+      darkTheme:                AppTheme.darkTheme,
+      themeMode:                ThemeMode.dark,
+      // onGenerateRoute returns null for everything except '/' so no
+      // navigation to other pages is possible.
+      home:                     const CompromisedDevicePage(),
+      onGenerateRoute:          (_) => null,
     );
   }
 }
