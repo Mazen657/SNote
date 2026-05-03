@@ -32,7 +32,7 @@ jobs:
         run: flutter pub get
 
       - name: Build APK
-        run: flutter build apk --release --split-per-abi
+        run: flutter build apk --release
 
       - name: Get version from pubspec
         id: version
@@ -41,11 +41,9 @@ jobs:
           UNIQUE_VERSION=${VERSION}-$(date +'%Y%m%d%H%M')
           echo "VERSION=$UNIQUE_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Rename all APKs
+      - name: Rename APK
         run: |
-          for file in build/app/outputs/flutter-apk/*.apk; do
-            mv "$file" "SNote-${file##*/}"
-          done
+          mv build/app/outputs/flutter-apk/app-release.apk SNote-v${{ steps.version.outputs.VERSION }}.apk
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
