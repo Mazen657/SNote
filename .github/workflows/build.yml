@@ -41,9 +41,11 @@ jobs:
           UNIQUE_VERSION=${VERSION}-$(date +'%Y%m%d%H%M')
           echo "VERSION=$UNIQUE_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Rename APK
+      - name: Rename all APKs
         run: |
-          mv build/app/outputs/flutter-apk/app-release.apk SNote-v${{ steps.version.outputs.VERSION }}.apk
+          for file in build/app/outputs/flutter-apk/*.apk; do
+            mv "$file" "SNote-${file##*/}"
+          done
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
