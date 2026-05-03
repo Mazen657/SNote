@@ -32,13 +32,14 @@ jobs:
         run: flutter pub get
 
       - name: Build APK
-        run: flutter build apk --release
+        run: flutter build apk --release --split-per-abi
 
       - name: Get version from pubspec
         id: version
         run: |
           VERSION=$(grep 'version:' pubspec.yaml | sed 's/version: //g' | cut -d '+' -f 1)
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          UNIQUE_VERSION=${VERSION}-$(date +'%Y%m%d%H%M')
+          echo "VERSION=$UNIQUE_VERSION" >> $GITHUB_OUTPUT
 
       - name: Rename APK
         run: |
