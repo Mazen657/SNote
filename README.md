@@ -62,7 +62,7 @@ telemetry of any kind.
 
 | Login | Notes List | Editor | Settings |
 |:---:|:---:|:---:|:---:|
-| `coming soon` | `coming soon` | `coming soon` | `coming soon` |
+| <img src="Screenshots/Screenshot_1777815706.png" width="200"> | <img src="Screenshots/Screenshot_1777815924.png" width="200">  | <img src="Screenshots/Screenshot_1777815900.png" width="200">  | <img src="Screenshots/Screenshot_1777815940.png" width="200">  |
 
 ---
 
