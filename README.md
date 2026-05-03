@@ -7,6 +7,7 @@
 <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License">
 
 <br><br>
+<img src="assets/images/app_icon.png" align="center" width="100">
 
 # SNote — Private Encrypted Notes
 
@@ -440,15 +441,14 @@ for an initial response before any public disclosure.
 
 **Mazen Abdallah**
 
-| | |
-|---|---|
-| GitHub | [github.com/Mazen657](https://github.com/Mazen657) |
-| LinkedIn | [linkedin.com/in/mazen-abdallah-mohamed](https://www.linkedin.com/in/mazen-abdallah-mohamed/) |
+<p align="center">
 
----
+<a href="https://github.com/Mazen657">
+  <img src="https://img.shields.io/badge/GitHub-Mazen657-181717?style=for-the-badge&logo=github">
+</a>
 
-<div align="center">
+<a href="https://www.linkedin.com/in/mazen-abdallah-mohamed/">
+  <img src="https://img.shields.io/badge/LinkedIn-Mazen%20Abdallah-0A66C2?style=for-the-badge&logo=linkedin">
+</a>
 
-Built with a security-first mindset. No accounts. No cloud. No compromise.
-
-</div>
+</p>
